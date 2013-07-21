@@ -1,4 +1,5 @@
-(ns devs.core)
+(ns devs.core
+  (:require [clojure.core.async :refer :all]))
 
 (defn- alternatives
   [state fs]
@@ -53,8 +54,6 @@
    it causes the machine to transition into the given state."
   [next-label]
   (fn [current]
-    (when-not (some #{next-label} (:state-alphabet current))
-      (throw (ex-info "Unrecognized state symbol" {:state-machine current :next-label next-label})))
     (assoc current :state next-label)))
 
 (defn generate-event
@@ -122,3 +121,39 @@
       (if-not deferred
         next-state
         (recur (assoc-in next-state [:internal-events] (rest deferred)) (first deferred))))))
+
+(defn evolve!
+  "Start a state machine, with the given input channel. Every time a new
+   input is presented, the state machine will 'tick' through it's evolution
+   function. One input symbol may result in multiple state transitions and
+   multiple output symbols, depending on automatic transitions.
+
+   This function returns a pair of channels [output error]. The output channel
+   will receive a series of values like [out-symbol machine-state].
+
+   Unrecognized input symbols will 'break' the machine. In this case, it
+   will emit a vector [:bad-input in-symbol machine-state] on the error channel.
+   At that point, the machine will ignore any further input symbols.
+
+   Exceptions in guard clauses will break the machine. It will emit a vector
+   [:exception exception-obj machine-state] on the error channel.
+
+   Valid input symbols that result in no possible transition do not break the machine,
+   but they do cause warnings on the error channel. Warnings take the form
+   [:warning message extra fields]."
+  [machine in]
+  (let [err (chan)
+        out (chan)
+        auto (chan)]
+    (go
+     (loop [state machine]
+       (let [[input from-ch] (alts! [auto in] :priority true)]
+         (if-not (some #{input} (:input-alphabet state))
+           (>! err [:bad-input input state]))
+         (let [state     (or (apply-alternatives state (get-in state [:transitions input])) machine)
+               output-fs (get-in state [:output-function (:state state)])
+               state     (apply-alternatives state output-fs)]
+           (>! out [(first (:output state)) state])
+           (doseq [e (:internal-events state)] (>! auto e))
+           (recur (dissoc state :internal-events))))))
+    [out err]))
