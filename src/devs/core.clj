@@ -136,11 +136,7 @@
    At that point, the machine will ignore any further input symbols.
 
    Exceptions in guard clauses will break the machine. It will emit a vector
-   [:exception exception-obj machine-state] on the error channel.
-
-   Valid input symbols that result in no possible transition do not break the machine,
-   but they do cause warnings on the error channel. Warnings take the form
-   [:warning message extra fields]."
+   [:exception exception-obj machine-state] on the error channel."
   [machine in]
   (let [err (chan)
         out (chan)
@@ -150,10 +146,12 @@
        (let [[input from-ch] (alts! [auto in] :priority true)]
          (if-not (some #{input} (:input-alphabet state))
            (>! err [:bad-input input state]))
-         (let [state     (or (apply-alternatives state (get-in state [:transitions input])) machine)
-               output-fs (get-in state [:output-function (:state state)])
-               state     (apply-alternatives state output-fs)]
+         ;; todo: handle exceptions from transition and output functions, once core.async allows try/catch inside go.
+         (let [state     (or (apply-alternatives state (get-in state [:transitions input])) state)
+               state     (apply-alternatives state (get-in state [:output-function (:state state)]))
+               auto-txns (:internal-events state)
+               state     (dissoc state :internal-events)]
+           (doseq [e auto-txns] (>! auto e))
            (>! out [(first (:output state)) state])
-           (doseq [e (:internal-events state)] (>! auto e))
-           (recur (dissoc state :internal-events))))))
+           (recur state)))))
     [out err]))
