@@ -26,18 +26,6 @@ This means that you can actually change the transition function when
 the state machine moves to new states. You can also change the input
 or output alphabets.
 
-## A dirty little secret
-
-You can also perform side-effecting functions as part of the
-transitions. These functions take the state machine as an argument, so
-they have an opportunity to attach data or inspect the current state.
-
-This isn't "clean", but I found it very useful to allow side effects
-for network I/O, especially when I want to use the result of the
-network I/O to determine the next state. (It is possible to do the
-same thing with intermediate states and automatic transitions, but the
-state machine description becomes very hairy.)
-
 ## Describing the state machine
 
 Here is an example from an "echo" server:
@@ -52,32 +40,26 @@ Here is an example from an "echo" server:
            :socket                 socket}
           (on-event :read
                 (in-state? :reading)
-                (side-effect read-buffer-from-socket)
                 (new-state :writing))
           (on-event :read
                 (in-state? :writing)
-                (side-effect read-buffer-from-socket)
                 (new-state :writing))
           (on-event :write
                 (in-state? :writing)
-                (side-effect write-buffer-to-socket)
                 (new-state :writing))
           (on-event :write
                 (in-state? :draining)
                 (guard all-data-drained?
-                    (generate-event :empty-buffers)
-                    write-buffer-to-socket)
+                    (generate-event :empty-buffers))
                 (new-state :draining))
           (on-event :empty-buffers
                 (in-state? :writing)
                 (new-state :reading))
           (on-event :empty-buffers
                 (in-state? :draining)
-                (side-effect close-socket)
                 (new-state :closed))
           (on-event :close
                 (in-state? :reading)
-                (side-effect close-socket)
                 (new-state :closed))
           (on-event :close
                 (in-state? :writing)

@@ -1,126 +1,90 @@
 (ns devs.core
-  (:require [clojure.core.async :refer :all]))
+  (:require [clojure.core.async :refer :all]
+            [clojure.pprint :refer [pprint]]))
 
-(defn- alternatives
-  [state fs]
-  (if (empty? fs)
-    state
-    (if-let [ret ((first fs) state)]
-      ret
-      (recur state (rest fs)))))
+(defprotocol ITransition
+  "Anything that can execute _during_ a state transition. This will be
+   invoked after the input symbol and current state are recognized, but
+   before the machine reflects the new state.
 
-(defn- sequential
-  [state fs]
-  (if (empty? fs)
-    state
-    (if-let [ret ((first fs) state)]
-      (recur ret (rest fs)))))
-
-(defn- lift-sequential
-  [fs]
-  (fn [machine] (sequential machine (seq fs))))
-
-(defn in-state?
-  "in-state? returns a predicate. Later, when that predicate is applied to a state machine,
-   it ensures that the machine is in the labeled state. If so, the predicate returns the
-   entire machine. If not, it returns nil."
-  [label]
-  (fn [current]
-    (if (= (:state current) label)
-      current
-      nil)))
-
-(defn side-effect
-  "side-effect returns a thunk to be applied later. When the thunk is applied to a state machine,
-   it calls the original function as (apply f state args). The side effecting function MUST
-   return a new value for the state machine if processing is to continue. The side effecting
-   function MAY return nil to abort processing."
-  [f & args]
-  (fn [current]
-    (apply f current args)))
-
-(defn guard
-  "guard returns a thunk to be applied later. When the thunk is applied,
-   it evaluates (apply guard-fn state). If the result is true, it continues
-   processing with true-fn. If false and false-fn is provided, then false-fn
-   is evaluated."
-  ([guard-fn true-fn] (guard guard-fn true-fn (constantly nil)))
-  ([guard-fn true-fn false-fn]
-     (fn [current]
-       ((if (guard-fn current) true-fn false-fn) current))))
+   To allow the transition, return the machine (possibly with alterations).
+   To veto the transition, return nil."
+  (on-transition [this m]))
 
 (defn new-state
-  "new-state returns a thunk to be applied later. When the thunk is applied to a state machine,
-   it causes the machine to transition into the given state."
-  [next-label]
-  (fn [current]
-    (assoc current :state next-label)))
+  "Return an ITransition that moves the machine to the specified state."
+  [to]
+  (reify ITransition
+    (on-transition [this m] (assoc m :state to))))
 
-(defn generate-event
-  "generate-event returns a thunk to be applied later. When the thunk is applied to a state machine,
-   it causes the machine to chain together another automatic transition. This is needed when you
-   are doing too many side-effects, so be wary."
-  [next-state]
-  (fn [current]
-    (update-in current [:internal-events] conj next-state)))
+(defn automatic
+  "Return an ITransition that generates an automatic (internal) event."
+  [in]
+  (reify ITransition
+    (on-transition [this m]
+      (update-in m [:internal-events] conj in))))
 
-(defn on-event
-  "This is a builder function that constructs the transition function incrementally.
-   Given a state machine, it adds a partial function that is activated when the input symbol 'evt'
-   is presented. The forms should be a sequence of guard, side-effect, and new-state thunks."
-  [machine evt & forms]
-  (update-in machine [:transitions evt] conj forms))
+(defn- allowed-input?  [m in]  (some #{in}  (:input-alphabet m)))
+(defn- allowed-output? [m out] (some #{out} (:output-alphabet m)))
+(defn- allowed-state?  [m s]   (some #{s}   (:state-alphabet m)))
 
-;; TODO - reuse alternative/sequential mechanism for output function
+(defn on
+"Adds to the state machine's transition function.
+     in-state - the originating state
+     input - an input symbol from the :input-alphabet
+     state - new state to transition into (must exist in :states)
+
+  The remaining arguments can include anything that implements ITransition,
+  including guard clauses."
+  [m in-state input to-state & txns]
+  (let [move-it (new-state to-state)
+        clauses (if txns (conj (vec txns) move-it) [move-it])]
+    (assert (allowed-input? m input))
+    (assert (allowed-state? m to-state))
+    (assoc-in m [:transitions [in-state input]] clauses)) )
+
 (defn outputs
-  "Append an incomplete output function to the state machine's output generator. Example:
+  "Adds to the state machine's output partial function.
+     state - the machine's state
+     symbols - a sequence of output symbols to emit _after_ the machine
+               has completed a transition into that state."
+  [m state symbol]
+  (assert (allowed-state? m state))
+  (assert (allowed-output? m symbol))
+  (assoc-in m [:outputs state] symbol))
 
-   (outputs machine :waiting (generate :read))
+(defn guard
+  [p]
+  (reify ITransition
+    (on-transition [this m]
+      (if (p m) m))))
 
-   The state machine can generate output after every input, whether the input was external or
-   internally initiated. The output is consed onto the list (:output machine), so the history
-   of all outputs is available."
-  [machine state & forms]
-  (update-in machine [:output-function state] conj forms))
-
-;;; TODO - allow _output_ to be a thunk. Call it when needed.
-(defn generate
-  "Use this together with outputs."
-  [output]
-  (fn [current]
-    (update-in current [:output] conj output)))
-
-(defn- apply-alternatives
-  [machine alts]
-    (if-not alts machine)
-    (if-let [ret (alternatives machine (map lift-sequential alts))]
-      ret
-      machine))
-
-(defn- select-future
+(defn- transition
   [machine input]
-  (apply-alternatives machine (get-in machine [:transitions input])))
+  (if-let [txns (get-in machine [:transitions [(:state machine) input]])]
+    (last (take-while (comp not nil?)
+                      (reductions #(.on-transition %2 %1) machine txns)))))
 
-(defn- write-outputs
-  [machine]
-  (apply-alternatives machine (get-in machine [:output-function (:state machine)])))
+(defn- evo-step
+  [machine input]
+  (let [next-state (or (transition machine input) machine)
+        out        (get-in next-state [:outputs (:state next-state)])
+        deferred   (seq (:internal-events next-state))
+        next-state (dissoc next-state :internal-events)]
+    [next-state out deferred]))
 
 (defn evolve
   "Evolve the state machine, given an input. Returns a new state machine as modified by
    the transition function and the output function. When automatic transitions are applied,
    evolve returns the final output. The intermediate states are not accessible."
   [machine input]
-  (when-not (some #{input} (:input-alphabet machine))
-    (ex-info "Unrecognized input symbol" {:state-machine machine :input input}))
-  (let [next-state  (update-in machine [:input-history] conj input)
-        next-state  (apply-alternatives next-state (get-in next-state [:transitions input]))
-        next-state  (or next-state machine)
-        output-fs   (get-in next-state [:output-function (:state next-state)])
-        next-state  (apply-alternatives next-state output-fs)]
-    (let [deferred (seq (:internal-events next-state))]
-      (if-not deferred
-        next-state
-        (recur (assoc-in next-state [:internal-events] (rest deferred)) (first deferred))))))
+  (if-not (allowed-input? machine input)
+    (throw (ex-info "Unrecognized input symbol" {:state-machine machine :input input}))
+    (let [[ns out-v auto-v] (evo-step machine input)
+          ns (if out-v (update-in ns [:output] concat [out-v]) ns)]
+      (if-not auto-v
+        ns
+        (recur (assoc-in ns [:internal-events] (rest auto-v)) (first auto-v))))))
 
 (defn evolve!
   "Start a state machine, with the given input channel. Every time a new
@@ -144,14 +108,12 @@
     (go
      (loop [state machine]
        (let [[input from-ch] (alts! [auto in] :priority true)]
-         (if-not (some #{input} (:input-alphabet state))
+         (if-not (allowed-input? state input)
            (>! err [:bad-input input state]))
-         ;; todo: handle exceptions from transition and output functions, once core.async allows try/catch inside go.
-         (let [state     (or (apply-alternatives state (get-in state [:transitions input])) state)
-               state     (apply-alternatives state (get-in state [:output-function (:state state)]))
-               auto-txns (:internal-events state)
-               state     (dissoc state :internal-events)]
-           (doseq [e auto-txns] (>! auto e))
-           (>! out [(first (:output state)) state])
-           (recur state)))))
+         (let [[ns out-v auto-v] (evo-step machine input)]
+           (println "evolve!" auto-v)
+           (doseq [e auto-v] (>! auto e))
+           (println "evolve!" out-v)
+           (>! out [out-v state])
+           (recur ns)))))
     [out err]))
