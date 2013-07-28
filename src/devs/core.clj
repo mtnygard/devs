@@ -2,27 +2,26 @@
   (:require [clojure.core.async :refer :all]
             [clojure.pprint :refer [pprint]]))
 
-(defprotocol ITransition
-  "Anything that can execute _during_ a state transition. This will be
-   invoked after the input symbol and current state are recognized, but
-   before the machine reflects the new state.
-
-   To allow the transition, return the machine (possibly with alterations).
-   To veto the transition, return nil."
-  (on-transition [this m]))
+;; I could do this with a protocol and instances instead,
+;; but then the resulting state machine would not be
+;; open to inspection for debugging or automatic
+;; documentation.
+(defmulti do-transition (fn [a [b c]] b))
 
 (defn new-state
-  "Return an ITransition that moves the machine to the specified state."
+  "Return a transition that moves the machine to the specified state."
   [to]
-  (reify ITransition
-    (on-transition [this m] (assoc m :state to))))
+  [:new-state to])
+(defmethod do-transition :new-state [m [_ to]] (-> m
+                                                   (assoc :state to)
+                                                   (update-in [:trace] conj to)))
 
 (defn automatic
-  "Return an ITransition that generates an automatic (internal) event."
+  "Return a transition that generates an automatic (internal) event."
   [in]
-  (reify ITransition
-    (on-transition [this m]
-      (update-in m [:internal-events] conj in))))
+  [:automatic in])
+(defmethod do-transition :automatic [m [_ in]] 
+  (update-in m [:internal-events] conj in))
 
 (defn- allowed-input?  [m in]  (some #{in}  (:input-alphabet m)))
 (defn- allowed-output? [m out] (some #{out} (:output-alphabet m)))
@@ -41,7 +40,7 @@
         clauses (if txns (conj (vec txns) move-it) [move-it])]
     (assert (allowed-input? m input))
     (assert (allowed-state? m to-state))
-    (assoc-in m [:transitions [in-state input]] clauses)) )
+    (assoc-in m [:transitions [in-state input]] clauses)))
 
 (defn outputs
   "Adds to the state machine's output partial function.
@@ -55,19 +54,22 @@
 
 (defn guard
   [p]
-  (reify ITransition
-    (on-transition [this m]
-      (if (p m) m))))
+  [:guard p])
+(defmethod do-transition :guard [m [_ p]] (if (p m) m))
 
 (defn- transition
   [machine input]
   (if-let [txns (get-in machine [:transitions [(:state machine) input]])]
-    (last (take-while (comp not nil?)
-                      (reductions #(.on-transition %2 %1) machine txns)))))
+    (do
+      (last (take-while (comp not nil?)
+                        (reductions #(do-transition %1 %2) machine txns))))))
 
 (defn- evo-step
   [machine input]
-  (let [next-state (or (transition machine input) machine)
+  (let [next-state (update-in machine [:input-trace] conj input)
+        next-state (transition next-state input)
+        _          (when-not next-state (println "WARNING: transition rejected, reverting"))
+        next-state (or next-state machine)
         out        (get-in next-state [:outputs (:state next-state)])
         deferred   (seq (:internal-events next-state))
         next-state (dissoc next-state :internal-events)]
@@ -110,10 +112,11 @@
        (let [[input from-ch] (alts! [auto in] :priority true)]
          (if-not (allowed-input? state input)
            (>! err [:bad-input input state]))
-         (let [[ns out-v auto-v] (evo-step machine input)]
-           (println "evolve!" auto-v)
-           (doseq [e auto-v] (>! auto e))
-           (println "evolve!" out-v)
-           (>! out [out-v state])
+         (let [[ns out-v auto-v] (evo-step state input)]
+           (when auto-v
+             (doseq [e auto-v]
+               (put! auto e)))
+           (when out-v
+             (put! out [out-v ns]))
            (recur ns)))))
     [out err]))

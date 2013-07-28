@@ -1,6 +1,7 @@
 (ns devs.core-test
   (:require [devs.core :refer :all]
             [expectations :refer :all]
+            [clojure.pprint :refer [pprint]]
             [clojure.core.async :refer [chan >! <!! go timeout alts!! close!]]))
 
 ;;; new style of interface, fewer functions more data
@@ -65,24 +66,22 @@
        (>! input-chan in)))
     (loop [outputs []
            machine-states []]
-      (println "run-machine")
       (let [[v c] (alts!! [out error (timeout 500)] :priority true)]
         (cond
          (= out c)    (do
-                        (println "run-machine" out)
                         (if (= :done (first v))
                           [(conj outputs (first v)) (conj machine-states (second v))]
                           (recur (conj outputs (first v)) (conj machine-states (second v)))))
 
          (= error c)  (throw (ex-info (str "Error generated from machine: " v) {}))
 
-         :else        (throw (ex-info "Test timed out before machine finished" {})))))))
+         :else        (throw (ex-info "Test timed out before machine finished" {:outputs outputs :states machine-states})))))))
 
-(expect [:pong :done]                      (first (run-machine pinger [:ping :quit])))
-(expect {:state :receiving}                (in (first (second (run-machine pinger [:ping :quit])))))
+(expect [:pong :done]     (first (run-machine pinger [:ping :quit])))
+(expect {:state :closed}  (in (last (second (run-machine pinger [:ping :quit])))))
 
-(def ten-pings (concat (repeat 10 :ping) [:quit]))
+(def ten-pings [:ping :ping :ping :ping :ping :ping :ping :ping :ping :ping :quit])
+(def ten-pongs [:pong :pong :pong :pong :pong :pong :pong :pong :pong :pong :done])
 
-(expect (concat (repeat 10 :pong) [:done]) (first (run-machine pinger ten-pings)))
-(expect {:state :closed}                   (in (last (second (run-machine pinger ten-pings)))))
-
+(expect ten-pongs         (first (run-machine pinger ten-pings)))
+(expect {:state :closed}  (in (last (second (run-machine pinger ten-pings)))))
