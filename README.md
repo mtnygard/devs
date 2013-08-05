@@ -1,4 +1,4 @@
-# DEVS
+# DEVS - Discrete Event System Specification
 
 This library provides a state machine as data. There is a single,
 generic "evolve" function that takes the state machine and an input,
@@ -93,6 +93,18 @@ seq of inputs:
 
 The when you're done, you can examine the output tape, which is bound
 to the key `:output`.
+
+## More Info
+For more detail about Atomic DEVS, see http://en.wikipedia.org/wiki/DEVS#Atomic_DEVS.
+
+A couple of nuances about this library's implementation:
+
+* It implements the reactive portion of an Atomic DEVS state machine, but does not handle internal transitions triggered by "collapse" of states
+from their lifespans elapsing. (Coming soon!)
+* It allows a series of automatic state transitions to happen atomically. Each automatic transition can generate an output symbol. Thus
+a single input symbol may result in a series of outputs.
+
+
 
 ## License
 
