@@ -29,6 +29,8 @@
 (defn- allowed-output? [m out] ((:output-alphabet m) out))
 (defn- allowed-state?  [m s]   ((:state-alphabet  m) s))
 
+(defn- conjv [coll e] (conj (vec coll) e))
+
 (defn on
 "Adds to the state machine's transition function.
      in-state - the originating state
@@ -38,8 +40,8 @@
   The remaining arguments can include anything that implements ITransition,
   including guard clauses."
   [m in-state input to-state & txns]
-  (let [move-it (new-state to-state)
-        clauses (if txns (conj (vec txns) move-it) [move-it])]
+  (let [next-state (new-state to-state)
+        clauses    (conjv (or txns []) next-state)]
     (assert (allowed-input? m input))
     (assert (allowed-state? m to-state))
     (assoc-in m [:transitions [in-state input]] clauses)))

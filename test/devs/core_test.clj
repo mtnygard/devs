@@ -6,33 +6,33 @@
 ;;; new style of interface, fewer functions more data
 (def machine1
   (-> {:input-alphabet #{:event-a :event-b :event-c}
-       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-final}
-       :state          :waiting-for-a}
-      (on :waiting-for-a :event-a :waiting-for-b)
-      (on :waiting-for-b :event-b :waiting-for-c)
-      (on :waiting-for-c :event-c :waiting-for-final)))
+       :state-alphabet #{:state-waiting-for-a :state-waiting-for-b :state-waiting-for-c :state-waiting-for-final}
+       :state          :state-waiting-for-a}
+      (on :state-waiting-for-a :event-a :state-waiting-for-b)
+      (on :state-waiting-for-b :event-b :state-waiting-for-c)
+      (on :state-waiting-for-c :event-c :state-waiting-for-final)))
 
-(expect {:state :waiting-for-b}     (in (evolve machine1 :event-a)))
-(expect {:state :waiting-for-c}     (in (evolve (evolve machine1 :event-a) :event-b)))
-(expect {:state :waiting-for-final} (in (evolve (evolve (evolve machine1 :event-a) :event-b) :event-c)))
-(expect clojure.lang.ExceptionInfo  (in (evolve machine1 :final)))
+(expect {:state :state-waiting-for-b}     (in (evolve machine1 :event-a)))
+(expect {:state :state-waiting-for-c}     (in (evolve (evolve machine1 :event-a) :event-b)))
+(expect {:state :state-waiting-for-final} (in (evolve (evolve (evolve machine1 :event-a) :event-b) :event-c)))
+(expect clojure.lang.ExceptionInfo        (in (evolve machine1 :final)))
 
 ;;; internal events for automatic state transitions
 (def machine2
   (-> {:input-alphabet #{:event-a :event-b :event-c}
-       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-final}
-       :state          :waiting-for-a}
-      (on :waiting-for-a :event-a :waiting-for-b (automatic :event-b))
-      (on :waiting-for-b :event-b :waiting-for-c (automatic :event-c))
-      (on :waiting-for-c :event-c :waiting-for-final)))
+       :state-alphabet #{:state-waiting-for-a :state-waiting-for-b :state-waiting-for-c :state-waiting-for-final}
+       :state          :state-waiting-for-a}
+      (on :state-waiting-for-a :event-a :state-waiting-for-b (automatic :event-b))
+      (on :state-waiting-for-b :event-b :state-waiting-for-c (automatic :event-c))
+      (on :state-waiting-for-c :event-c :state-waiting-for-final)))
 
-(expect {:state :waiting-for-final} (in (evolve machine2 :event-a)))
+(expect {:state :state-waiting-for-final} (in (evolve machine2 :event-a)))
 
 (def pinger
-  (-> {:input-alphabet #{:ping :quit :ponged}
-       :state-alphabet #{:receiving :sending :closed}
+  (-> {:input-alphabet  #{:ping :quit :ponged}
+       :state-alphabet  #{:receiving :sending :closed}
        :output-alphabet #{:pong :done}
-       :state          :receiving}
+       :state           :receiving}
       (on :receiving :ping :sending (automatic :ponged))
       (on :receiving :quit :closed)
       (on :sending :quit :closed)
