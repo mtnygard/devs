@@ -84,30 +84,31 @@ No matter what your alphabets or functions, there is just one function
 to evolve from one state to the next:
 
     (defn evolve [state-machine input-symbol])
-    
+
 It returns a new state machine. Keep it in an Agent, an Atom, or just
 a locally bound variable. For example, to process a (hopefully finite)
 seq of inputs:
 
     (reduce evolve state-machine inputs)
 
-The when you're done, you can examine the output tape, which is bound
+Then when you're done, you can examine the output tape, which is bound
 to the key `:output`.
 
 ## More Info
+
 For more detail about Atomic DEVS, see http://en.wikipedia.org/wiki/DEVS#Atomic_DEVS.
 
 A couple of nuances about this library's implementation:
 
-* It implements the reactive portion of an Atomic DEVS state machine, but does not handle internal transitions triggered by "collapse" of states
-from their lifespans elapsing. (Coming soon!)
-* It allows a series of automatic state transitions to happen atomically. Each automatic transition can generate an output symbol. Thus
-a single input symbol may result in a series of outputs.
-
-
+    * It implements the reactive portion of an Atomic DEVS state
+      machine, but does not handle internal transitions triggered by
+      "collapse" of states from their lifespans elapsing. (Coming soon!)
+    * It allows a series of automatic state transitions to happen
+      atomically. Each automatic transition can generate an output
+      symbol. Thus a single input symbol may result in a series of outputs.
 
 ## License
 
-Copyright © 2013 Michael T. Nygard
+Copyright © 2013-2016 Michael T. Nygard
 
 Distributed under the Eclipse Public License, the same as Clojure.
