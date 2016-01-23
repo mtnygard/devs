@@ -4,29 +4,29 @@
             [clojure.core.async :as a]))
 
 ;;; new style of interface, fewer functions more data
-(def m1a
-  (-> {:input-alphabet #{:evt-a :evt-b :evt-c}
-       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-godot}
+(def machine1
+  (-> {:input-alphabet #{:event-a :event-b :event-c}
+       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-final}
        :state          :waiting-for-a}
-      (on :waiting-for-a :evt-a :waiting-for-b)
-      (on :waiting-for-b :evt-b :waiting-for-c)
-      (on :waiting-for-c :evt-c :waiting-for-godot)))
+      (on :waiting-for-a :event-a :waiting-for-b)
+      (on :waiting-for-b :event-b :waiting-for-c)
+      (on :waiting-for-c :event-c :waiting-for-final)))
 
-(expect {:state :waiting-for-b}     (in (evolve m1a :evt-a)))
-(expect {:state :waiting-for-c}     (in (evolve (evolve m1a :evt-a) :evt-b)))
-(expect {:state :waiting-for-godot} (in (evolve (evolve (evolve m1a :evt-a) :evt-b) :evt-c)))
-(expect clojure.lang.ExceptionInfo  (in (evolve m1a :godot)))
+(expect {:state :waiting-for-b}     (in (evolve machine1 :event-a)))
+(expect {:state :waiting-for-c}     (in (evolve (evolve machine1 :event-a) :event-b)))
+(expect {:state :waiting-for-final} (in (evolve (evolve (evolve machine1 :event-a) :event-b) :event-c)))
+(expect clojure.lang.ExceptionInfo  (in (evolve machine1 :final)))
 
 ;;; internal events for automatic state transitions
-(def m2
-  (-> {:input-alphabet #{:evt-a :evt-b :evt-c}
-       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-godot}
+(def machine2
+  (-> {:input-alphabet #{:event-a :event-b :event-c}
+       :state-alphabet #{:waiting-for-a :waiting-for-b :waiting-for-c :waiting-for-final}
        :state          :waiting-for-a}
-      (on :waiting-for-a :evt-a :waiting-for-b (automatic :evt-b))
-      (on :waiting-for-b :evt-b :waiting-for-c (automatic :evt-c))
-      (on :waiting-for-c :evt-c :waiting-for-godot)))
+      (on :waiting-for-a :event-a :waiting-for-b (automatic :event-b))
+      (on :waiting-for-b :event-b :waiting-for-c (automatic :event-c))
+      (on :waiting-for-c :event-c :waiting-for-final)))
 
-(expect {:state :waiting-for-godot} (in (evolve m2 :evt-a)))
+(expect {:state :waiting-for-final} (in (evolve machine2 :event-a)))
 
 (def pinger
   (-> {:input-alphabet #{:ping :quit :ponged}
@@ -62,23 +62,23 @@
 
 (defn run-machine
   [machine inputs]
-  (let [input-chan  (a/chan)
-        [out error] (evolve! machine input-chan)]
+  (let [input-chan (a/chan)
+        out-chan   (a/chan)
+        err-chan   (a/chan (a/dropping-buffer 1000))
+        terminate  (evolve! machine input-chan out-chan err-chan)]
     (a/go
-     (doseq [in inputs]
-       (a/>! input-chan in)))
-    (loop [outputs []
+      (doseq [in inputs]
+        (a/>! input-chan in)))
+    (loop [outputs        []
            machine-states []]
-      (let [[v c] (a/alts!! [out error (a/timeout 500)] :priority true)]
+      (let [[v c] (a/alts!! [out-chan err-chan (a/timeout 500)] :priority true)]
         (cond
-         (= out c)    (do
-                        (if (= :done (first v))
-                          [(conj outputs (first v)) (conj machine-states (second v))]
-                          (recur (conj outputs (first v)) (conj machine-states (second v)))))
-
-         (= error c)  (throw (ex-info (str "Error generated from machine: " v) {}))
-
-         :else        (throw (ex-info "Test timed out before machine finished" {:outputs outputs :states machine-states})))))))
+          (= out-chan c) (do
+                           (if (= :done (first v))
+                             [(conj outputs (first v)) (conj machine-states (second v))]
+                             (recur (conj outputs (first v)) (conj machine-states (second v)))))
+          (= err-chan c) (throw (ex-info (str "Error generated from machine: " v) {}))
+          :else          (throw (ex-info "Test timed out before machine finished" {:outputs outputs :states machine-states})))))))
 
 (expect [:pong :done]     (first (run-machine pinger [:ping :quit])))
 (expect {:state :closed}  (in (last (second (run-machine pinger [:ping :quit])))))

@@ -99,27 +99,28 @@
    function. One input symbol may result in multiple state transitions and
    multiple output symbols, depending on automatic transitions.
 
-   This function returns a pair of channels [output error]. The output channel
-   will receive a series of values like [out-symbol machine-state].
+   The output channel will receive a series of values like [out-symbol machine-state].
+
+   Exceptions in guard clauses will break the machine. It will emit a vector
+   [:exception exception-obj machine-state] on the error channel.
 
    Unrecognized input symbols will 'break' the machine. In this case, it
    will emit a vector [:bad-input in-symbol machine-state] on the error channel.
    At that point, the machine will ignore any further input symbols.
 
-   Exceptions in guard clauses will break the machine. It will emit a vector
-   [:exception exception-obj machine-state] on the error channel."
-  [machine in]
-  (let [err  (a/chan)
-        out  (a/chan)
-        auto (a/chan (a/dropping-buffer 1000))]
+   This function returns a channel that will close when the machine terminates.
+
+   If the input channel is closed, the machine will terminate."
+  [machine in out err]
+  (let [auto (a/chan (a/dropping-buffer 1000))]
     (a/go-loop [state machine]
-     (let [[input from-ch] (a/alts! [auto in] :priority true)]
-       (if-not (allowed-input? state input)
-         (a/>! err [:bad-input input state]))
-       (let [[next-state out-symbols auto-inputs] (evo-step state input)]
-         (doseq [e auto-inputs]
-           (a/put! auto e))
-         (when out-symbols
-           (a/put! out [out-symbols next-state]))
-         (recur next-state))))
-    [out err]))
+      (let [[input from-ch] (a/alts! [auto in] :priority true)]
+        (when input
+          (if-not (allowed-input? state input)
+            (a/>! err [:bad-input input state]))
+          (let [[next-state out-symbols auto-inputs] (evo-step state input)]
+            (doseq [e auto-inputs]
+              (a/put! auto e))
+            (when out-symbols
+              (a/put! out [out-symbols next-state]))
+            (recur next-state)))))))
