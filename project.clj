@@ -1,9 +1,9 @@
-(defproject devs "0.1.0"
+(defproject devs "0.2.0-SNAPSHOT"
   :description "Discrete Event System Simulation - a generic state machine"
   :url "http://github.com/mtnygard/devs"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
-  :dependencies [[org.clojure/clojure "1.5.1"]
-                 [org.clojure/core.async "0.1.0-SNAPSHOT"]]
-  :profiles {:dev {:dependencies [[expectations "1.4.36"]]}}
-  :plugins [[lein-autoexpect "0.1.2"]])
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [org.clojure/core.async "0.2.374"]]
+  :profiles {:dev {:dependencies [[expectations "2.1.4"]]}}
+  :plugins [[lein-autoexpect "1.7.0"]])
