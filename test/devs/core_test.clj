@@ -1,8 +1,7 @@
 (ns devs.core-test
   (:require [devs.core :refer :all]
             [expectations :refer :all]
-            [clojure.pprint :refer [pprint]]
-            [clojure.core.async :refer [chan >! <!! go timeout alts!! close!]]))
+            [clojure.core.async :as a]))
 
 ;;; new style of interface, fewer functions more data
 (def m1a
@@ -12,10 +11,11 @@
       (on :waiting-for-a :evt-a :waiting-for-b)
       (on :waiting-for-b :evt-b :waiting-for-c)
       (on :waiting-for-c :evt-c :waiting-for-godot)))
+
 (expect {:state :waiting-for-b}     (in (evolve m1a :evt-a)))
 (expect {:state :waiting-for-c}     (in (evolve (evolve m1a :evt-a) :evt-b)))
 (expect {:state :waiting-for-godot} (in (evolve (evolve (evolve m1a :evt-a) :evt-b) :evt-c)))
-(expect clojure.lang.ExceptionInfo (in (evolve m1a :godot)))
+(expect clojure.lang.ExceptionInfo  (in (evolve m1a :godot)))
 
 ;;; internal events for automatic state transitions
 (def m2
@@ -25,6 +25,7 @@
       (on :waiting-for-a :evt-a :waiting-for-b (automatic :evt-b))
       (on :waiting-for-b :evt-b :waiting-for-c (automatic :evt-c))
       (on :waiting-for-c :evt-c :waiting-for-godot)))
+
 (expect {:state :waiting-for-godot} (in (evolve m2 :evt-a)))
 
 (def pinger
@@ -42,6 +43,7 @@
 
 (def pinger'  (evolve pinger  :ping))
 (def pinger'' (evolve pinger' :ping))
+
 (expect '(:pong) (:output pinger'))
 (expect '(:pong :pong) (:output pinger''))
 
@@ -51,6 +53,7 @@
        :state           :receiving
        :pinger-working? false}
       (on :receiving :ping :sending (guard :pinger-working?))))
+
 (def broken-pinger' (evolve broken-pinger :ping))
 (def fixed-pinger   (evolve (assoc broken-pinger :pinger-working? true) :ping))
 
@@ -59,14 +62,14 @@
 
 (defn run-machine
   [machine inputs]
-  (let [input-chan  (chan)
+  (let [input-chan  (a/chan)
         [out error] (evolve! machine input-chan)]
-    (go
+    (a/go
      (doseq [in inputs]
-       (>! input-chan in)))
+       (a/>! input-chan in)))
     (loop [outputs []
            machine-states []]
-      (let [[v c] (alts!! [out error (timeout 500)] :priority true)]
+      (let [[v c] (a/alts!! [out error (a/timeout 500)] :priority true)]
         (cond
          (= out c)    (do
                         (if (= :done (first v))

@@ -1,6 +1,5 @@
 (ns devs.core
-  (:require [clojure.core.async :refer :all]
-            [clojure.pprint :refer [pprint]]))
+  (:require [clojure.core.async :as a]))
 
 ;; I could do this with a protocol and instances instead,
 ;; but then the resulting state machine would not be
@@ -12,20 +11,23 @@
   "Return a transition that moves the machine to the specified state."
   [to]
   [:new-state to])
-(defmethod do-transition :new-state [m [_ to]] (-> m
-                                                   (assoc :state to)
-                                                   (update-in [:trace] conj to)))
+
+(defmethod do-transition :new-state [m [_ to]]
+  (-> m
+      (assoc :state to)
+      (update :trace conj to)))
 
 (defn automatic
   "Return a transition that generates an automatic (internal) event."
   [in]
   [:automatic in])
-(defmethod do-transition :automatic [m [_ in]] 
-  (update-in m [:internal-events] conj in))
 
-(defn- allowed-input?  [m in]  (some #{in}  (:input-alphabet m)))
-(defn- allowed-output? [m out] (some #{out} (:output-alphabet m)))
-(defn- allowed-state?  [m s]   (some #{s}   (:state-alphabet m)))
+(defmethod do-transition :automatic [m [_ in]]
+  (update m :internal-events conj in))
+
+(defn- allowed-input?  [m in]  ((:input-alphabet  m) in))
+(defn- allowed-output? [m out] ((:output-alphabet m) out))
+(defn- allowed-state?  [m s]   ((:state-alphabet  m) s))
 
 (defn on
 "Adds to the state machine's transition function.
@@ -47,14 +49,15 @@
      state - the machine's state
      symbols - a sequence of output symbols to emit _after_ the machine
                has completed a transition into that state."
-  [m state symbol]
+  [m state sym]
   (assert (allowed-state? m state))
-  (assert (allowed-output? m symbol))
-  (assoc-in m [:outputs state] symbol))
+  (assert (allowed-output? m sym))
+  (assoc-in m [:outputs state] sym))
 
 (defn guard
   [p]
   [:guard p])
+
 (defmethod do-transition :guard [m [_ p]] (if (p m) m))
 
 (defn- transition
@@ -77,16 +80,18 @@
 
 (defn evolve
   "Evolve the state machine, given an input. Returns a new state machine as modified by
-   the transition function and the output function. When automatic transitions are applied,
+   the transition function and the output function. When automatic inputs are applied,
    evolve returns the final output. The intermediate states are not accessible."
   [machine input]
   (if-not (allowed-input? machine input)
     (throw (ex-info "Unrecognized input symbol" {:state-machine machine :input input}))
-    (let [[ns out-v auto-v] (evo-step machine input)
-          ns (if out-v (update-in ns [:output] concat [out-v]) ns)]
-      (if-not auto-v
-        ns
-        (recur (assoc-in ns [:internal-events] (rest auto-v)) (first auto-v))))))
+    (let [[next-state out-symbols auto-inputs] (evo-step machine input)
+          next-state                           (cond-> next-state
+                                                 out-symbols
+                                                 (update :output concat [out-symbols]))]
+      (if-not auto-inputs
+        next-state
+        (recur (assoc next-state :internal-events (rest auto-inputs)) (first auto-inputs))))))
 
 (defn evolve!
   "Start a state machine, with the given input channel. Every time a new
@@ -104,19 +109,17 @@
    Exceptions in guard clauses will break the machine. It will emit a vector
    [:exception exception-obj machine-state] on the error channel."
   [machine in]
-  (let [err (chan)
-        out (chan)
-        auto (chan)]
-    (go
-     (loop [state machine]
-       (let [[input from-ch] (alts! [auto in] :priority true)]
-         (if-not (allowed-input? state input)
-           (>! err [:bad-input input state]))
-         (let [[ns out-v auto-v] (evo-step state input)]
-           (when auto-v
-             (doseq [e auto-v]
-               (put! auto e)))
-           (when out-v
-             (put! out [out-v ns]))
-           (recur ns)))))
+  (let [err  (a/chan)
+        out  (a/chan)
+        auto (a/chan (a/dropping-buffer 1000))]
+    (a/go-loop [state machine]
+     (let [[input from-ch] (a/alts! [auto in] :priority true)]
+       (if-not (allowed-input? state input)
+         (a/>! err [:bad-input input state]))
+       (let [[next-state out-symbols auto-inputs] (evo-step state input)]
+         (doseq [e auto-inputs]
+           (a/put! auto e))
+         (when out-symbols
+           (a/put! out [out-symbols next-state]))
+         (recur next-state))))
     [out err]))
