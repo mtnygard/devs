@@ -1,10 +1,6 @@
 (ns devs.core
   (:require [clojure.core.async :as a]))
 
-;; I could do this with a protocol and instances instead,
-;; but then the resulting state machine would not be
-;; open to inspection for debugging or automatic
-;; documentation.
 (defmulti do-transition (fn [a [b c]] b))
 
 (defn new-state
@@ -69,7 +65,7 @@
       (last (take-while (comp not nil?)
                         (reductions #(do-transition %1 %2) machine txns))))))
 
-(defn- evo-step
+(defn- evolve-step
   [machine input]
   (let [next-state (update-in machine [:input-trace] conj input)
         next-state (transition next-state input)
@@ -87,7 +83,7 @@
   [machine input]
   (if-not (allowed-input? machine input)
     (throw (ex-info "Unrecognized input symbol" {:state-machine machine :input input}))
-    (let [[next-state out-symbols auto-inputs] (evo-step machine input)
+    (let [[next-state out-symbols auto-inputs] (evolve-step machine input)
           next-state                           (cond-> next-state
                                                  out-symbols
                                                  (update :output concat [out-symbols]))]
@@ -120,7 +116,7 @@
         (when input
           (if-not (allowed-input? state input)
             (a/>! err [:bad-input input state]))
-          (let [[next-state out-symbols auto-inputs] (evo-step state input)]
+          (let [[next-state out-symbols auto-inputs] (evolve-step state input)]
             (doseq [e auto-inputs]
               (a/put! auto e))
             (when out-symbols
