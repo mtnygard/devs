@@ -6,12 +6,12 @@ and produces a new state machine.
 
 Formally, the state machine is specified as a tuple of the following:
 
-    * S   - The state alphabet
-    * s   - The current state
-    * A_i - The input alphabet
-    * A_o - The output alphabet
-    * F   - The transition function from (s, A_i) -> n, where n is the next state
-    * O   - The output function from (C_n+1, A_o) -> o, where o is a symbol from A_o
+   * S   - The state alphabet
+   * s   - The current state
+   * A_i - The input alphabet
+   * A_o - The output alphabet
+   * F   - The transition function from (s, A_i) -> n, where n is the next state
+   * O   - The output function from (C_n+1, A_o) -> o, where o is a symbol from A_o
 
 An easy way to think of this is that the state machine accepts any
 symbol in the input and "transitions" to a new state based on the
@@ -100,15 +100,15 @@ For more detail about Atomic DEVS, see http://en.wikipedia.org/wiki/DEVS#Atomic_
 
 A couple of nuances about this library's implementation:
 
-    * It implements the reactive portion of an Atomic DEVS state
+   * It implements the reactive portion of an Atomic DEVS state
       machine, but does not handle internal transitions triggered by
       "collapse" of states from their lifespans elapsing. (Coming soon!)
-    * It allows a series of automatic state transitions to happen
+   * It allows a series of automatic state transitions to happen
       atomically. Each automatic transition can generate an output
       symbol. Thus a single input symbol may result in a series of outputs.
 
 ## License
 
-Copyright © 2013-2016 Michael T. Nygard
+Copyright © 2013-2017 Michael T. Nygard
 
 Distributed under the Eclipse Public License, the same as Clojure.
