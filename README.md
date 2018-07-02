@@ -38,42 +38,41 @@ Here is an example from an "echo" server:
            :state-alphabet         #{:reading :writing :draining :closed}
            :state                  :reading
            :socket                 socket}
-          (on-event :read
-                (in-state? :reading)
-                (new-state :writing))
-          (on-event :read
-                (in-state? :writing)
-                (new-state :writing))
-          (on-event :write
-                (in-state? :writing)
-                (new-state :writing))
-          (on-event :write
-                (in-state? :draining)
-                (guard all-data-drained?
-                    (generate-event :empty-buffers))
-                (new-state :draining))
-          (on-event :empty-buffers
-                (in-state? :writing)
-                (new-state :reading))
-          (on-event :empty-buffers
-                (in-state? :draining)
-                (new-state :closed))
-          (on-event :close
-                (in-state? :reading)
-                (new-state :closed))
-          (on-event :close
-                (in-state? :writing)
-                (new-state :draining))
-          (outputs  :reading  (generate [:read]))
-          (outputs  :writing  (generate [:read :write]))
-          (outputs  :draining (generate [:write]))
-          (outputs  :closed   (generate []))))
+          (on :read
+              (in-state? :reading)
+              (new-state :writing))
+          (on :read
+              (in-state? :writing)
+              (new-state :writing))
+          (on :write
+              (in-state? :writing)
+              (new-state :writing))
+          (on :write
+              (in-state? :draining)
+              (guard all-data-drained?
+                     (generate-event :empty-buffers))
+              (new-state :draining))
+          (on :empty-buffers
+              (in-state? :writing)
+              (new-state :reading))
+          (on :empty-buffers
+              (in-state? :draining)
+              (new-state :closed))
+          (on :close
+              (in-state? :reading)
+              (new-state :closed))
+          (on :close
+              (in-state? :writing)
+              (new-state :draining))
+          (outputs :reading  (generate [:read]))
+          (outputs :writing  (generate [:read :write]))
+          (outputs :draining (generate [:write]))
+          (outputs :closed   (generate []))))
 
-This code builds a state machine definition by passing maps in to
-various high-level "builder" functions like `on-event`. `on-event`
-builds up the transition function as a relation over the cross product
-of S and A_i. This allows a much more compact representation than
-writing the total function F!
+This code builds a state machine definition by passing maps in to various
+high-level "builder" functions like `on`. `on` builds up the transition function
+as a relation over the cross product of S and A_i. This allows a much more
+compact representation than writing the total function F!
 
 Likewise, `outputs` is a builder function for the output function. It
 accumulates states and "generators" for the output tape.
@@ -109,6 +108,6 @@ A couple of nuances about this library's implementation:
 
 ## License
 
-Copyright © 2013-2017 Michael T. Nygard
+Copyright © 2013-2018 Michael T. Nygard
 
 Distributed under the Eclipse Public License, the same as Clojure.

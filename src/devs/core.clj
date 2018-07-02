@@ -1,7 +1,15 @@
 (ns devs.core
+  "Implementation of the Discrete Event System Specification (DEVS)."
   (:require [clojure.core.async :as a]))
 
-(defmulti do-transition (fn [a [b c]] b))
+(defn- allowed-input?  [m in]  ((:input-alphabet  m) in))
+(defn- allowed-output? [m out] ((:output-alphabet m) out))
+(defn- allowed-state?  [m s]   ((:state-alphabet  m) s))
+(defn- conjv [coll e] (conj (vec coll) e))
+
+(defmulti do-transition
+  (fn [_fsm [transition _next-state]]
+    transition))
 
 (defn new-state
   "Return a transition that moves the machine to the specified state."
@@ -11,7 +19,7 @@
 (defmethod do-transition :new-state [m [_ to]]
   (-> m
       (assoc :state to)
-      (update :trace conj to)))
+      (update :trace conjv to)))
 
 (defn automatic
   "Return a transition that generates an automatic (internal) event."
@@ -19,22 +27,16 @@
   [:automatic in])
 
 (defmethod do-transition :automatic [m [_ in]]
-  (update m :internal-events conj in))
-
-(defn- allowed-input?  [m in]  ((:input-alphabet  m) in))
-(defn- allowed-output? [m out] ((:output-alphabet m) out))
-(defn- allowed-state?  [m s]   ((:state-alphabet  m) s))
-
-(defn- conjv [coll e] (conj (vec coll) e))
+  (update m :internal-events conjv in))
 
 (defn on
 "Adds to the state machine's transition function.
      in-state - the originating state
-     input - an input symbol from the :input-alphabet
-     state - new state to transition into (must exist in :states)
+     input    - an input symbol from the :input-alphabet
+     state    - new state to transition into (must exist in :states)
 
-  The remaining arguments can include anything that implements ITransition,
-  including guard clauses."
+  The remaining arguments can include anything that recognized by
+  the do-transition multimethod, including guard clauses."
   [m in-state input to-state & txns]
   (let [next-state (new-state to-state)
         clauses    (conjv (or txns []) next-state)]
@@ -56,18 +58,19 @@
   [p]
   [:guard p])
 
-(defmethod do-transition :guard [m [_ p]] (if (p m) m))
+(defmethod do-transition :guard
+  [m [_ p]]
+  (when (p m) m))
 
 (defn- transition
   [machine input]
-  (if-let [txns (get-in machine [:transitions [(:state machine) input]])]
+  (when-let [txns (get-in machine [:transitions [(:state machine) input]])]
     (do
-      (last (take-while (comp not nil?)
-                        (reductions #(do-transition %1 %2) machine txns))))))
+      (last (take-while some? (reductions #(do-transition %1 %2) machine txns))))))
 
 (defn- evolve-step
   [machine input]
-  (let [next-state (update-in machine [:input-trace] conj input)
+  (let [next-state (update-in machine [:input-trace] conjv input)
         next-state (transition next-state input)
         _          (when-not next-state (println "WARNING: transition rejected, reverting"))
         next-state (or next-state machine)
