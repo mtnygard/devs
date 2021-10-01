@@ -109,6 +109,6 @@ A couple of nuances about this library's implementation:
 
 ## License
 
-Copyright © 2013-2017 Michael T. Nygard
+Copyright © 2013-2021 Michael T. Nygard
 
 Distributed under the Eclipse Public License, the same as Clojure.
