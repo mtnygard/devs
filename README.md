@@ -102,7 +102,7 @@ A couple of nuances about this library's implementation:
 
    * It implements the reactive portion of an Atomic DEVS state
       machine, but does not handle internal transitions triggered by
-      "collapse" of states from their lifespans elapsing. (Coming soon!)
+      "collapse" of states from their lifespans elapsing.
    * It allows a series of automatic state transitions to happen
       atomically. Each automatic transition can generate an output
       symbol. Thus a single input symbol may result in a series of outputs.
@@ -111,4 +111,4 @@ A couple of nuances about this library's implementation:
 
 Copyright © 2013-2021 Michael T. Nygard
 
-Distributed under the Eclipse Public License, the same as Clojure.
+Distributed under the Eclipse Public License.
